@@ -137,23 +137,43 @@ fn temp_dir_path(prefix: &str) -> PathBuf {
 fn write_fake_gh(bin_dir: &Path) {
     #[cfg(windows)]
     {
-        let path = bin_dir.join("gh.bat");
+        // Command::new("gh") resolves the runner's gh.exe before a fake gh.bat.
+        let source_path = bin_dir.join("gh.rs");
+        let exe_path = bin_dir.join("gh.exe");
         fs::write(
-            path,
-            r#"@echo off
-if "%1 %2"=="auth token" (
-  echo gh-token-from-cli
-  exit /b 0
-)
-if "%1 %2"=="repo view" (
-  echo owner/from-gh
-  exit /b 0
-)
-echo unexpected gh args: %* 1>&2
-exit /b 1
+            &source_path,
+            r#"fn main() {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if args.first().map(String::as_str) == Some("auth")
+        && args.get(1).map(String::as_str) == Some("token")
+    {
+        println!("gh-token-from-cli");
+        return;
+    }
+    if args.first().map(String::as_str) == Some("repo")
+        && args.get(1).map(String::as_str) == Some("view")
+    {
+        println!("owner/from-gh");
+        return;
+    }
+    eprintln!("unexpected gh args: {}", args.join(" "));
+    std::process::exit(1);
+}
 "#,
         )
         .unwrap();
+        let output = Command::new("rustc")
+            .arg(&source_path)
+            .arg("-o")
+            .arg(&exe_path)
+            .output()
+            .expect("failed to compile fake gh executable");
+        assert!(
+            output.status.success(),
+            "stdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[cfg(not(windows))]
