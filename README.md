@@ -19,14 +19,19 @@ Live recursive conversion:
 
 ```bash
 YOUGILE_TOKEN=... \
-GITHUB_TOKEN=... \
 cargo run -- \
   --yougile-base-url https://ru.yougile.com \
   --task-id YOU_GILE_TASK_ID \
-  --github-repo owner/repo \
   --mode issue-tree \
   --label imported-from-yougile
 ```
+
+When `--github-token` / `GITHUB_TOKEN` is not set, the CLI runs
+`gh auth token` and uses the authenticated GitHub CLI token. When
+`--github-repo` / `GITHUB_REPOSITORY` is not set, it runs
+`gh repo view --json nameWithOwner --jq .nameWithOwner` and uses the current
+GitHub repository. Pass the flag or environment variable explicitly when
+converting into a repository other than the current checkout.
 
 Useful options:
 
@@ -34,9 +39,14 @@ Useful options:
 - `--mode single-issue`: creates one GitHub issue body containing the full recursive tree.
 - `--dry-run`: prints the GitHub issue plan as JSON without writing to GitHub.
 - `--task-json <path>`: reads a captured `YougileTaskTree` JSON fixture instead of calling YouGile.
+- `--github-token <token>`: overrides GitHub CLI token detection.
+- `--github-repo <owner/repo>`: overrides GitHub CLI repository detection.
 - `--max-depth <n>`: limits recursive subtask traversal.
 - `--include-deleted`: includes deleted YouGile chat messages where the API returns them.
 - `--include-system-messages`: includes system chat messages.
+
+Set `YOUGILE_TO_GH_TRACE_GH=1` to print the `gh` detection commands while
+debugging. The trace prints command names only, not the detected token.
 
 ## Library
 
