@@ -1,6 +1,6 @@
 [package]
 name = "yougile-to-gh"
-version = "0.18.0"
+version = "0.19.0"
 edition = "2021"
 description = "Convert YouGile task trees into GitHub issues"
 readme = "README.md"
