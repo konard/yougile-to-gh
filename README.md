@@ -30,8 +30,9 @@ When `--github-token` / `GITHUB_TOKEN` is not set, the CLI runs
 `gh auth token` and uses the authenticated GitHub CLI token. When
 `--github-repo` / `GITHUB_REPOSITORY` is not set, it runs
 `gh repo view --json nameWithOwner --jq .nameWithOwner` and uses the current
-GitHub repository. Pass the flag or environment variable explicitly when
-converting into a repository other than the current checkout.
+GitHub repository. These commands are executed through `command-stream` with
+stdin disabled and output captured. Pass the flag or environment variable
+explicitly when converting into a repository other than the current checkout.
 
 Useful options:
 

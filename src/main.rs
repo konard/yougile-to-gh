@@ -1,9 +1,11 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::process::{self, Command, Stdio};
+use std::process;
 
 use clap::{ArgAction, Parser, ValueEnum};
+use command_stream::{CommandResult, RunOptions, StdinOption};
+use tokio::runtime::Builder;
 use yougile_to_gh::{
     build_conversion_plan, execute_conversion_plan, fetch_task_tree, ConversionMode,
     ConversionOptions, FetchOptions, GitHubClient, GitHubRepository, Result, YougileClient,
@@ -198,32 +200,29 @@ fn run_gh_detection(
 ) -> Result<String> {
     trace_gh(display_command);
 
-    let output = Command::new("gh")
-        .args(args)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|source| YougileToGhError::GitHubCliDetection {
+    let command = gh_command(args);
+    let output =
+        run_command_stream(&command).map_err(|source| YougileToGhError::GitHubCliDetection {
             value: value_name,
             command: display_command,
             fallback,
             message: source.to_string(),
         })?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let value = stdout.trim();
-    if output.status.success() && !value.is_empty() {
+    let value = output.stdout.trim();
+    if output.is_success() && !value.is_empty() {
         return Ok(value.to_owned());
     }
 
-    let message = if output.status.success() {
+    let message = if output.is_success() {
         "command produced empty stdout".to_owned()
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let details = stderr.trim();
-        let status = output.status.code().map_or_else(
-            || "terminated by signal".to_owned(),
-            |code| code.to_string(),
-        );
+        let details = output.stderr.trim();
+        let status = if output.code < 0 {
+            "terminated by signal".to_owned()
+        } else {
+            output.code.to_string()
+        };
 
         if details.is_empty() {
             format!("exit status {status}")
@@ -238,6 +237,29 @@ fn run_gh_detection(
         fallback,
         message,
     })
+}
+
+fn gh_command(args: &[&str]) -> String {
+    std::iter::once("gh")
+        .chain(args.iter().copied())
+        .map(command_stream::quote)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn run_command_stream(command: &str) -> command_stream::Result<CommandResult> {
+    let runtime = Builder::new_current_thread().enable_io().build()?;
+    runtime.block_on(command_stream::exec(
+        command,
+        RunOptions {
+            mirror: false,
+            capture: true,
+            stdin: StdinOption::Null,
+            shell_operators: false,
+            trace: false,
+            ..Default::default()
+        },
+    ))
 }
 
 fn trace_gh(command: &str) {

@@ -107,7 +107,10 @@ fn cli_uses_gh_to_detect_missing_github_credentials() {
 
     let request = server.join().expect("GitHub API server panicked");
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stdout.contains("\"github_issue_number\": 7"));
+    assert!(!stdout.contains("gh-token-from-cli"));
+    assert!(!stderr.contains("gh-token-from-cli"));
     assert!(request.starts_with("POST /repos/owner/from-gh/issues HTTP/1.1"));
     assert!(request
         .to_ascii_lowercase()
