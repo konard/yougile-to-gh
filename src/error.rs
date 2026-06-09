@@ -50,6 +50,18 @@ pub enum YougileToGhError {
     #[error("maximum task recursion depth {max_depth} exceeded at YouGile task {task_id}")]
     MaxDepthExceeded { task_id: String, max_depth: usize },
 
+    #[error("YouGile authentication returned no companies for the provided credentials")]
+    YougileNoCompanies,
+
+    #[error(
+        "YouGile authentication returned multiple companies; \
+         set --yougile-company-id (or YOUGILE_COMPANY_ID) to one of: {companies}"
+    )]
+    YougileMultipleCompanies { companies: String },
+
+    #[error("YouGile authentication response did not include an API key")]
+    YougileMissingApiKey,
+
     #[error("GitHub response for created issue did not include a numeric issue id")]
     MissingGitHubIssueId,
 

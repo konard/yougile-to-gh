@@ -1,16 +1,20 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
-use clap::{ArgAction, Parser, ValueEnum};
+use clap::ArgAction;
 use command_stream::{CommandResult, RunOptions, StdinOption};
+use lino_arguments::{LinoEnv, Parser, ValueEnum};
 use tokio::runtime::Builder;
 use yougile_to_gh::{
     build_conversion_plan, execute_conversion_plan, fetch_task_tree, ConversionMode,
-    ConversionOptions, FetchOptions, GitHubClient, GitHubRepository, Result, YougileClient,
-    YougileTaskTree, YougileToGhError,
+    ConversionOptions, FetchOptions, GitHubClient, GitHubRepository, Result, YougileAuth,
+    YougileClient, YougileTaskTree, YougileToGhError,
 };
+
+/// Default `.lenv` file used to persist a resolved `YouGile` token.
+const DEFAULT_LENV_PATH: &str = ".lenv";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 enum CliMode {
@@ -32,6 +36,7 @@ impl From<CliMode> for ConversionMode {
     name = "yougile-to-gh",
     about = "Convert a YouGile task tree into GitHub issue(s)"
 )]
+#[allow(clippy::struct_excessive_bools)]
 struct Args {
     #[arg(
         long,
@@ -42,6 +47,15 @@ struct Args {
 
     #[arg(long, env = "YOUGILE_TOKEN")]
     yougile_token: Option<String>,
+
+    #[arg(long, env = "YOUGILE_LOGIN")]
+    yougile_login: Option<String>,
+
+    #[arg(long, env = "YOUGILE_PASSWORD")]
+    yougile_password: Option<String>,
+
+    #[arg(long, env = "YOUGILE_COMPANY_ID")]
+    yougile_company_id: Option<String>,
 
     #[arg(long, env = "YOUGILE_TASK_ID")]
     task_id: Option<String>,
@@ -78,6 +92,14 @@ struct Args {
 
     #[arg(long)]
     include_system_messages: bool,
+
+    /// Path to the `.lenv` file used to persist a resolved `YouGile` token.
+    #[arg(long, env = "YOUGILE_LENV_PATH", default_value = DEFAULT_LENV_PATH)]
+    lenv_path: PathBuf,
+
+    /// Do not persist a credential-resolved `YouGile` token to the `.lenv` file.
+    #[arg(long)]
+    no_save_token: bool,
 }
 
 fn main() {
@@ -88,6 +110,9 @@ fn main() {
 }
 
 fn run() -> Result<()> {
+    // Load `.lenv` (and `.env`) into the process environment before clap reads
+    // its `env = ...` defaults, so a previously persisted token is reused.
+    lino_arguments::init();
     let args = Args::parse();
     let tree = load_task_tree(&args)?;
     let options = ConversionOptions {
@@ -123,10 +148,7 @@ fn load_task_tree(args: &Args) -> Result<YougileTaskTree> {
     }
 
     let task_id = required(args.task_id.as_deref(), "YOUGILE_TASK_ID or --task-id")?;
-    let token = required(
-        args.yougile_token.as_deref(),
-        "YOUGILE_TOKEN or --yougile-token",
-    )?;
+    let token = resolve_yougile_token(args)?;
     let client = YougileClient::new(&args.yougile_base_url, token)
         .include_deleted(args.include_deleted)
         .include_system_messages(args.include_system_messages);
@@ -138,6 +160,57 @@ fn load_task_tree(args: &Args) -> Result<YougileTaskTree> {
             max_depth: args.max_depth,
         },
     )
+}
+
+/// Resolve a usable `YouGile` API token.
+///
+/// A token supplied directly (via `--yougile-token` / `YOUGILE_TOKEN`, which
+/// also covers values loaded from `.lenv`) wins. Otherwise, when a login and
+/// password are available, the token is created through the `YouGile`
+/// authentication API and persisted to the `.lenv` file for reuse.
+fn resolve_yougile_token(args: &Args) -> Result<String> {
+    if let Some(token) = non_empty(args.yougile_token.as_deref()) {
+        return Ok(token.to_owned());
+    }
+
+    let login = required(
+        args.yougile_login.as_deref(),
+        "YOUGILE_TOKEN/--yougile-token or YOUGILE_LOGIN/--yougile-login",
+    )?;
+    let password = required(
+        args.yougile_password.as_deref(),
+        "YOUGILE_PASSWORD or --yougile-password",
+    )?;
+
+    let auth = YougileAuth::new(&args.yougile_base_url);
+    let resolved = auth.resolve_token(
+        login,
+        password,
+        non_empty(args.yougile_company_id.as_deref()),
+    )?;
+
+    if !args.no_save_token {
+        save_token_to_lenv(&args.lenv_path, &resolved.token)?;
+    }
+
+    Ok(resolved.token)
+}
+
+/// Persist the resolved `YouGile` token to the `.lenv` file, preserving any
+/// existing entries.
+fn save_token_to_lenv(path: &Path, token: &str) -> Result<()> {
+    let path_display = path.display().to_string();
+    let path_str = path
+        .to_str()
+        .ok_or(YougileToGhError::MissingValue("a UTF-8 --lenv-path"))?;
+
+    let mut lenv = LinoEnv::new(path_str);
+    lenv.read()
+        .map_err(|source| YougileToGhError::io(path_display.clone(), source))?;
+    lenv.set("YOUGILE_TOKEN", token);
+    lenv.write()
+        .map_err(|source| YougileToGhError::io(path_display, source))?;
+    Ok(())
 }
 
 fn print_json<T: serde::Serialize>(value: &T) -> Result<()> {

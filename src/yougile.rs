@@ -176,7 +176,7 @@ fn fetch_task_tree_inner<S: YougileSource>(
     Ok(tree)
 }
 
-fn normalize_api_base_url(base_url: &str) -> String {
+pub(crate) fn normalize_api_base_url(base_url: &str) -> String {
     let trimmed = base_url.trim_end_matches('/');
     if trimmed.ends_with("/api-v2") {
         trimmed.to_owned()

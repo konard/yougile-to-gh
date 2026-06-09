@@ -26,6 +26,33 @@ cargo run -- \
   --label imported-from-yougile
 ```
 
+### YouGile authentication
+
+A token may be supplied directly through `--yougile-token` / `YOUGILE_TOKEN`.
+When no token is available, the CLI authenticates with your YouGile login and
+password and creates an API key for you:
+
+```bash
+cargo run -- \
+  --yougile-login you@example.com \
+  --yougile-password secret \
+  --task-id YOU_GILE_TASK_ID
+```
+
+The credential exchange uses the YouGile `AuthKeyController` endpoints
+(`POST /api-v2/auth/companies` to list companies and `POST /api-v2/auth/keys`
+to create the key). When your account belongs to a single company it is
+selected automatically; otherwise pass `--yougile-company-id`
+(or set `YOUGILE_COMPANY_ID`) with one of the listed company ids.
+
+The resolved token is saved to a `.lenv` file (`--lenv-path`, default `.lenv`)
+so later runs reuse it instead of re-authenticating. CLI options, environment
+variables, `.lenv`, and `.env` are loaded through the
+[`lino-arguments`](https://github.com/link-foundation/lino-arguments) library,
+with precedence: CLI arguments > environment variables > `.lenv` > `.env` >
+defaults. Pass `--no-save-token` to skip persisting the token. The `.lenv`
+file stores credentials — keep it out of version control.
+
 When `--github-token` / `GITHUB_TOKEN` is not set, the CLI runs
 `gh auth token` and uses the authenticated GitHub CLI token. When
 `--github-repo` / `GITHUB_REPOSITORY` is not set, it runs
@@ -42,6 +69,10 @@ Useful options:
 - `--task-json <path>`: reads a captured `YougileTaskTree` JSON fixture instead of calling YouGile.
 - `--github-token <token>`: overrides GitHub CLI token detection.
 - `--github-repo <owner/repo>`: overrides GitHub CLI repository detection.
+- `--yougile-login <login>` / `--yougile-password <password>`: authenticate with credentials when no token is set.
+- `--yougile-company-id <id>`: selects the YouGile company when the account can access more than one.
+- `--lenv-path <path>`: path of the `.lenv` file used to persist a credential-resolved token (default `.lenv`).
+- `--no-save-token`: do not write a credential-resolved token to the `.lenv` file.
 - `--max-depth <n>`: limits recursive subtask traversal.
 - `--include-deleted`: includes deleted YouGile chat messages where the API returns them.
 - `--include-system-messages`: includes system chat messages.

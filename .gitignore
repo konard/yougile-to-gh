@@ -51,6 +51,10 @@ doc/
 .env.local
 *.local
 
+# Persisted YouGile credentials/token (see lino-arguments)
+.lenv
+.lenv.local
+
 # Log files
 *.log
 logs/
