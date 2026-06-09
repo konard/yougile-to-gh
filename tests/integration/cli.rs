@@ -121,6 +121,84 @@ fn cli_uses_gh_to_detect_missing_github_credentials() {
     fs::remove_dir_all(fake_bin_dir).unwrap();
 }
 
+#[test]
+fn cli_resolves_yougile_token_from_credentials_and_saves_to_lenv() {
+    let work_dir = temp_dir_path("yougile-to-gh-auth-work");
+    fs::create_dir_all(&work_dir).unwrap();
+    let lenv_path = work_dir.join(".lenv");
+
+    let (api_url, server) = start_yougile_api_server();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_yougile-to-gh"))
+        .current_dir(&work_dir)
+        .args([
+            "--yougile-base-url",
+            &api_url,
+            "--yougile-login",
+            "user@example.com",
+            "--yougile-password",
+            "s3cr3t",
+            "--task-id",
+            "root",
+            "--mode",
+            "single-issue",
+            "--dry-run",
+            "--lenv-path",
+            lenv_path.to_str().unwrap(),
+        ])
+        .env_remove("YOUGILE_TOKEN")
+        .env_remove("YOUGILE_LOGIN")
+        .env_remove("YOUGILE_PASSWORD")
+        .output()
+        .expect("failed to execute yougile-to-gh");
+
+    let requests = server.join().expect("YouGile API server panicked");
+
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // The credential exchange hit the documented AuthKeyController endpoints.
+    assert!(requests
+        .iter()
+        .any(|request| request.starts_with("POST /api-v2/auth/companies HTTP/1.1")));
+    assert!(requests
+        .iter()
+        .any(|request| request.starts_with("POST /api-v2/auth/keys HTTP/1.1")));
+    // The resolved token was used as a bearer credential for task fetching.
+    assert!(requests.iter().any(|request| {
+        request.starts_with("GET /api-v2/tasks/root HTTP/1.1")
+            && request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer yg-secret-key")
+    }));
+
+    // The dry-run plan reflects the task fetched with the resolved token.
+    assert!(stdout.contains("\"mode\": \"single-issue\""));
+    assert!(stdout.contains("Auth root"));
+
+    // The token is persisted to `.lenv` for reuse, preserving the lino format.
+    let saved = fs::read_to_string(&lenv_path).expect("`.lenv` should be written");
+    assert!(
+        saved.contains("YOUGILE_TOKEN: yg-secret-key"),
+        "unexpected .lenv contents:\n{saved}"
+    );
+
+    // Secrets never leak to the user-facing streams.
+    assert!(!stdout.contains("yg-secret-key"));
+    assert!(!stderr.contains("yg-secret-key"));
+    assert!(!stdout.contains("s3cr3t"));
+    assert!(!stderr.contains("s3cr3t"));
+
+    fs::remove_dir_all(work_dir).unwrap();
+}
+
 fn temp_fixture_path() -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -234,6 +312,62 @@ fn start_github_api_server() -> (String, thread::JoinHandle<String>) {
     });
 
     (format!("http://{address}"), handle)
+}
+
+/// A mock `YouGile` API server that serves the credential-auth handshake
+/// followed by a minimal single-task fetch, then returns the captured requests.
+///
+/// Every response sets `Connection: close` so each `ureq` request arrives on a
+/// fresh connection, keeping the accept loop a simple one-request-per-stream.
+fn start_yougile_api_server() -> (String, thread::JoinHandle<Vec<String>>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = thread::spawn(move || {
+        let mut requests = Vec::new();
+        // companies + keys + task + messages = four sequential requests.
+        for _ in 0..4 {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let request = read_http_request(&mut stream);
+            let body = yougile_mock_response(&request);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+            stream.flush().unwrap();
+            requests.push(request);
+        }
+        requests
+    });
+
+    (format!("http://{address}"), handle)
+}
+
+fn yougile_mock_response(request: &str) -> String {
+    let request_line = request.lines().next().unwrap_or_default();
+    if request_line.contains("/api-v2/auth/companies") {
+        concat!(
+            "{\"paging\":{\"count\":1,\"limit\":50,\"offset\":0,\"next\":false},",
+            "\"content\":[{\"id\":\"company-1\",\"name\":\"Acme\",\"isAdmin\":true}]}"
+        )
+        .to_owned()
+    } else if request_line.contains("/api-v2/auth/keys") {
+        "{\"key\":\"yg-secret-key\"}".to_owned()
+    } else if request_line.contains("/api-v2/tasks/") {
+        concat!(
+            "{\"id\":\"root\",\"title\":\"Auth root\",",
+            "\"timestamp\":1700000000000,\"subtasks\":[]}"
+        )
+        .to_owned()
+    } else if request_line.contains("/api-v2/chats/") {
+        "{\"paging\":{\"count\":0,\"limit\":1000,\"offset\":0,\"next\":false},\"content\":[]}"
+            .to_owned()
+    } else {
+        panic!("unexpected YouGile request: {request_line}");
+    }
 }
 
 fn read_http_request(stream: &mut TcpStream) -> String {

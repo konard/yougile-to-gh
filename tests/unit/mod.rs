@@ -1,3 +1,4 @@
+mod auth;
 mod converter;
 mod render;
 mod yougile;
