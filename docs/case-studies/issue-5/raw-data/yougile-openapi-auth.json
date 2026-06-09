@@ -1,0 +1,247 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "YouGile REST API v2.0",
+    "description": "## Введение\n\nНовая версия REST API от YouGile обладает значительно более широким функционалом по сравнению с первой — существующие запросы получили дополнительные возможности, а также был добавлен ряд новых запросов, которых не было ранее. Вторая версия API несовместима с первой, это нужно учесть тем пользователям, которые хотят перейти с предыдущей версии.\n\nРеализованные на текущий момент запросы можно найти в меню слева, в разделе ENDPOINTS. На данный момент работа над API продолжается. Ниже на этой странице перечислен функционал, который будет добавлен в ближайшее время.\n\nЛюбые пожелания по развитию функциональности API обязательно сообщайте нам — <support@yougile.com>\n\n## Как использовать\n\noperations/AuthKeyController_companiesList\n\n- [Получить](operations/AuthKeyController_companiesList) ID компании, которой хочется управлять с помощью REST API (для этого нужен логин и пароль от аккаунта в YouGile).\n- [Получить](operations/AuthKeyController_create) ключ API (для этого нужен логин и пароль от аккаунта в YouGile и ID компании).\n- Использовать этот ключ для дальнейших запросов к API.\n- Ключ API не имеет ограничений по времени и по количеству запросов с его использованием. Есть только ограничение на их частоту - не более 50 в минуту на компанию.\n- API позволяет управлять ключами: получать список и удалять. У каждого аккаунта может быть не более 30 ключей.\n- Запрос к API – это HTTPS запрос к адресу вида:\n\n  ```http\n  https://yougile.com/api-v2/{resource}\n  ```\n\n  (http метод GET, POST, PUT или DELETE)\n- К каждому запросу нужно добавлять заголовки: `Content-Type: application/json` и `Authorization: Bearer <ключ API>`.\n- Параметры запроса передаются в виде JSON в теле запроса.\n- Если запрос был успешно выполнен, то ответ будет иметь статус `200` или `201` (в случае создания новых объектов), если же запрос был неуспешным, статус будет начинаться с `3`, `4` или `5` в зависимости от типа ошибки. Также будет присутствовать поле `error` с описанием ошибки.\n- API при работе проверяет и использует права аккаунта / владельца ключа. Если сотрудники не могут что-то увидеть или сделать через интерфейс из-за недостаточных прав, то же самое ограничение они будут иметь и через API.\n\n---\n\nПоддержка, консультации, обратная связь — <support@yougile.com>\n\n## Примеры использования для внутреннего пользования\n\n// Получение ключа для компании ООО «Производство»\n\n```bash\ncurl --location 'http://localhost:8001/api-v2/auth/keys' \\\n--header 'Content-Type: application/json' \\\n--header 'Accept: application/json' \\\n--data-raw '{\n  \"login\": \"dev@yougile.com\",\n  \"password\": \"123\" ,\n  \"companyId\": \"44eccf40-a027-4d06-b5c2-18f4c02bb026\"\n}'\n```\n\n// Создание проекта\n\n```bash\ncurl --location 'http://localhost:8001/api-v2/projects' \\\n--header 'Content-Type: application/json' \\\n--header 'Accept: application/json' \\\n--header 'Authorization: Bearer -VRKgqzejQhROjMTmOk3h20Rnj6XKkwBFx5GkK1fA34TvLFmiVdmEPt3-ygeWfiy' \\\n--data '{\n \"title\": \"тест\",\n \"users\": {\"80eed1bd-eda3-4991-ac17-09d28566749d\": \"admin\"}\n}'\n```\n",
+    "version": "2.0",
+    "contact": {}
+  },
+  "paths": {
+    "/api-v2/auth/companies": {
+      "post": {
+        "operationId": "getCompanies",
+        "summary": "Получить список компаний",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Количество элементов, которые хочется получить. Максимум 1000.",
+            "schema": {
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "offset",
+            "required": false,
+            "in": "query",
+            "description": "Индекс первого элемента страницы",
+            "schema": {
+              "default": 0,
+              "type": "number"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialsWithNameDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyListDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "429": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Авторизация"
+        ]
+      }
+    },
+    "/api-v2/auth/keys": {
+      "post": {
+        "operationId": "AuthKeyController_create",
+        "summary": "Создать ключ",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialsWithCompanyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthKeyDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": ""
+          },
+          "401": {
+            "description": ""
+          },
+          "403": {
+            "description": ""
+          },
+          "429": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Авторизация"
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CompanyListDto": {
+        "type": "object",
+        "properties": {
+          "paging": {
+            "description": "Дополнительная информация о странице",
+            "example": {
+              "limit": 100,
+              "offset": 201,
+              "next": true
+            },
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PagingMetadata"
+              }
+            ]
+          },
+          "content": {
+            "description": "Список компаний пользователя",
+            "example": [],
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompanyListDtoBase"
+            }
+          }
+        },
+        "required": [
+          "paging",
+          "content"
+        ]
+      },
+      "CompanyDto": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean",
+            "description": "Если true, значит объект удален"
+          },
+          "id": {
+            "type": "string",
+            "example": "4f6f0391-0f94-4d30-9b0e-99430a36d4fb",
+            "description": "ID объекта"
+          },
+          "title": {
+            "type": "string",
+            "example": "ГосУслуги",
+            "description": "Название компании"
+          },
+          "timestamp": {
+            "type": "number",
+            "example": 1623223299149,
+            "description": "Время создания компании"
+          },
+          "apiData": {
+            "type": "object",
+            "example": "{}",
+            "description": "Вспомогательные данные для разработки"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "timestamp"
+        ]
+      },
+      "AuthKeyDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "H6HngIA816fpIhY7tBvWx/it3YbVvEt/33Sk8afA39MCR9a",
+            "description": "Ключ авторизации"
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
+      "CredentialsWithCompanyDto": {
+        "type": "object",
+        "properties": {
+          "login": {
+            "type": "string",
+            "example": "some@example.com",
+            "description": "Логин пользователя"
+          },
+          "password": {
+            "type": "string",
+            "example": "topsecret",
+            "description": "Пароль пользователя"
+          },
+          "companyId": {
+            "type": "string",
+            "example": "9347006b-dc75-4550-97d5-3008ba00d4a0",
+            "description": "ID компании. Для получения ID компании можно использовать горячие клавиши в интерфейсе (Ctrl+Alt+Q / Ctrl+Option+Q для Mac) или воспользоваться [методом POST /auth/companies](../operations/getCompanies)"
+          }
+        },
+        "required": [
+          "login",
+          "password",
+          "companyId"
+        ]
+      },
+      "CredentialsWithNameDto": {
+        "type": "object",
+        "properties": {
+          "login": {
+            "type": "string",
+            "example": "some@example.com",
+            "description": "Логин пользователя"
+          },
+          "password": {
+            "type": "string",
+            "example": "topsecret",
+            "description": "Пароль пользователя"
+          },
+          "name": {
+            "type": "string",
+            "example": "Газпром",
+            "description": "Название компании"
+          }
+        },
+        "required": [
+          "login",
+          "password"
+        ]
+      }
+    }
+  }
+}

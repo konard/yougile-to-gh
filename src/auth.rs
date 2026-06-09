@@ -12,10 +12,17 @@ pub struct YougileCompany {
     pub id: String,
 
     /// Human-readable company name (may be empty).
-    #[serde(default)]
+    ///
+    /// The official `YouGile` API names this field `title` (see `CompanyDto` in
+    /// the `OpenAPI` spec); the `name` alias keeps community client shapes working
+    /// too.
+    #[serde(default, alias = "title")]
     pub name: String,
 
     /// Whether the authenticated user is an administrator of the company.
+    ///
+    /// Absent from the official `CompanyDto`; populated only when a response
+    /// includes an `isAdmin` field.
     #[serde(default, rename = "isAdmin")]
     pub is_admin: bool,
 }

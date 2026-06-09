@@ -146,6 +146,34 @@ fn create_api_key_errors_when_key_missing() {
 }
 
 #[test]
+fn list_companies_reads_official_company_dto_title_field() {
+    // The official OpenAPI `CompanyDto` exposes the company name as `title`
+    // inside a `{ paging, content }` envelope.
+    let http = FakeHttp::new(vec![(
+        "/auth/companies",
+        json!({
+            "paging": { "count": 1, "limit": 50, "offset": 0, "next": false },
+            "content": [
+                {
+                    "id": "4f6f0391-0f94-4d30-9b0e-99430a36d4fb",
+                    "title": "ГосУслуги",
+                    "timestamp": 1_623_223_299_149_u64
+                }
+            ]
+        }),
+    )]);
+    let auth = YougileAuth::with_http_client("https://ru.yougile.com", http);
+
+    let companies = auth
+        .list_companies("user@example.com", "secret", None)
+        .unwrap();
+
+    assert_eq!(companies.len(), 1);
+    assert_eq!(companies[0].id, "4f6f0391-0f94-4d30-9b0e-99430a36d4fb");
+    assert_eq!(companies[0].name, "ГосУслуги");
+}
+
+#[test]
 fn list_companies_accepts_companies_key_envelope() {
     let http = FakeHttp::new(vec![(
         "/auth/companies",
