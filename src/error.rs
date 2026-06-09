@@ -33,6 +33,14 @@ pub enum YougileToGhError {
     #[error("missing required value: {0}")]
     MissingValue(&'static str),
 
+    #[error("could not detect {value} with `{command}`: {message}; set {fallback}")]
+    GitHubCliDetection {
+        value: &'static str,
+        command: &'static str,
+        fallback: &'static str,
+        message: String,
+    },
+
     #[error("GitHub repository must use owner/repo format, got {0:?}")]
     InvalidGitHubRepo(String),
 

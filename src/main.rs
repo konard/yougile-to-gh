@@ -1,8 +1,11 @@
+use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
 
 use clap::{ArgAction, Parser, ValueEnum};
+use command_stream::{CommandResult, RunOptions, StdinOption};
+use tokio::runtime::Builder;
 use yougile_to_gh::{
     build_conversion_plan, execute_conversion_plan, fetch_task_tree, ConversionMode,
     ConversionOptions, FetchOptions, GitHubClient, GitHubRepository, Result, YougileClient,
@@ -98,18 +101,12 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    let token = required(
-        args.github_token.as_deref(),
-        "GITHUB_TOKEN or --github-token",
-    )?;
-    let repo = required(
-        args.github_repo.as_deref(),
-        "GITHUB_REPOSITORY or --github-repo",
-    )?;
-    let repository = GitHubRepository::parse(repo)?;
+    let token = resolve_github_token(args.github_token.as_deref())?;
+    let repo = resolve_github_repo(args.github_repo.as_deref())?;
+    let repository = GitHubRepository::parse(&repo)?;
     let github = GitHubClient::with_http_client(
         args.github_api_url,
-        token.to_owned(),
+        token,
         repository,
         yougile_to_gh::http::UreqHttpClient::new(),
     );
@@ -156,4 +153,124 @@ fn required<'a>(value: Option<&'a str>, name: &'static str) -> Result<&'a str> {
     value
         .filter(|value| !value.trim().is_empty())
         .ok_or(YougileToGhError::MissingValue(name))
+}
+
+fn resolve_github_token(value: Option<&str>) -> Result<String> {
+    if let Some(value) = non_empty(value) {
+        return Ok(value.to_owned());
+    }
+
+    run_gh_detection(
+        &["auth", "token"],
+        "gh auth token",
+        "GitHub token",
+        "GITHUB_TOKEN or --github-token",
+    )
+}
+
+fn resolve_github_repo(value: Option<&str>) -> Result<String> {
+    if let Some(value) = non_empty(value) {
+        return Ok(value.to_owned());
+    }
+
+    run_gh_detection(
+        &[
+            "repo",
+            "view",
+            "--json",
+            "nameWithOwner",
+            "--jq",
+            ".nameWithOwner",
+        ],
+        "gh repo view --json nameWithOwner --jq .nameWithOwner",
+        "GitHub repository",
+        "GITHUB_REPOSITORY or --github-repo",
+    )
+}
+
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+fn run_gh_detection(
+    args: &[&str],
+    display_command: &'static str,
+    value_name: &'static str,
+    fallback: &'static str,
+) -> Result<String> {
+    trace_gh(display_command);
+
+    let command = gh_command(args);
+    let output =
+        run_command_stream(&command).map_err(|source| YougileToGhError::GitHubCliDetection {
+            value: value_name,
+            command: display_command,
+            fallback,
+            message: source.to_string(),
+        })?;
+
+    let value = output.stdout.trim();
+    if output.is_success() && !value.is_empty() {
+        return Ok(value.to_owned());
+    }
+
+    let message = if output.is_success() {
+        "command produced empty stdout".to_owned()
+    } else {
+        let details = output.stderr.trim();
+        let status = if output.code < 0 {
+            "terminated by signal".to_owned()
+        } else {
+            output.code.to_string()
+        };
+
+        if details.is_empty() {
+            format!("exit status {status}")
+        } else {
+            format!("exit status {status}: {details}")
+        }
+    };
+
+    Err(YougileToGhError::GitHubCliDetection {
+        value: value_name,
+        command: display_command,
+        fallback,
+        message,
+    })
+}
+
+fn gh_command(args: &[&str]) -> String {
+    std::iter::once("gh")
+        .chain(args.iter().copied())
+        .map(command_stream::quote)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn run_command_stream(command: &str) -> command_stream::Result<CommandResult> {
+    let runtime = Builder::new_current_thread().enable_io().build()?;
+    runtime.block_on(command_stream::exec(
+        command,
+        RunOptions {
+            mirror: false,
+            capture: true,
+            stdin: StdinOption::Null,
+            shell_operators: false,
+            trace: false,
+            ..Default::default()
+        },
+    ))
+}
+
+fn trace_gh(command: &str) {
+    if env_flag("YOUGILE_TO_GH_TRACE_GH") {
+        eprintln!("running {command}");
+    }
+}
+
+fn env_flag(name: &str) -> bool {
+    matches!(
+        env::var(name).as_deref(),
+        Ok("1" | "true" | "TRUE" | "yes" | "YES")
+    )
 }
