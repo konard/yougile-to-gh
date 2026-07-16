@@ -251,3 +251,14 @@ pub struct CreatedGitHubComment {
     pub html_url: String,
     pub url: String,
 }
+
+/// An existing GitHub issue, read back to repair the body of an earlier import.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct GitHubIssue {
+    pub number: u64,
+    pub title: String,
+    pub html_url: String,
+    /// GitHub sends `null` for an issue whose body was cleared.
+    #[serde(default)]
+    pub body: Option<String>,
+}

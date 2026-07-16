@@ -1,6 +1,7 @@
 mod auth;
 mod converter;
 mod render;
+mod repair;
 mod task_url;
 mod yougile;
 

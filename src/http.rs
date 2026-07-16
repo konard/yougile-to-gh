@@ -6,6 +6,7 @@ use crate::error::{Result, YougileToGhError};
 pub enum HttpMethod {
     Get,
     Post,
+    Patch,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,6 +45,15 @@ impl HttpRequest {
     pub fn post(url: impl Into<String>, body: Value) -> Self {
         Self {
             method: HttpMethod::Post,
+            url: url.into(),
+            headers: Vec::new(),
+            body: Some(body),
+        }
+    }
+
+    pub fn patch(url: impl Into<String>, body: Value) -> Self {
+        Self {
+            method: HttpMethod::Patch,
             url: url.into(),
             headers: Vec::new(),
             body: Some(body),
@@ -93,6 +103,7 @@ impl HttpClient for UreqHttpClient {
         let mut request_builder = match request.method {
             HttpMethod::Get => self.agent.get(&url),
             HttpMethod::Post => self.agent.post(&url),
+            HttpMethod::Patch => self.agent.patch(&url),
         };
 
         for header in request.headers {

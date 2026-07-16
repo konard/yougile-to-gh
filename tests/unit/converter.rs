@@ -4,8 +4,8 @@ use yougile_to_gh::converter::{
     build_conversion_plan, execute_conversion_plan, ConversionMode, ConversionOptions,
 };
 use yougile_to_gh::github::{GitHubIssueDraft, GitHubSink};
-use yougile_to_gh::models::{CreatedGitHubComment, CreatedGitHubIssue};
-use yougile_to_gh::{Result, YougileTaskTree};
+use yougile_to_gh::models::{CreatedGitHubComment, CreatedGitHubIssue, GitHubIssue};
+use yougile_to_gh::{Result, YougileTaskTree, YougileToGhError};
 
 use crate::render::sample_tree;
 
@@ -121,6 +121,14 @@ impl GitHubSink for FakeGitHub {
             .borrow_mut()
             .push((parent_issue_number, sub_issue_id));
         Ok(())
+    }
+
+    fn fetch_issue(&self, _issue_number: u64) -> Result<GitHubIssue> {
+        Err(YougileToGhError::MissingValue("fake issue"))
+    }
+
+    fn update_issue_body(&self, _issue_number: u64, _body: &str) -> Result<()> {
+        Err(YougileToGhError::MissingValue("fake issue update"))
     }
 }
 

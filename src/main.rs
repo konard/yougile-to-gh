@@ -9,10 +9,10 @@ use command_stream::{CommandResult, RunOptions, StdinOption};
 use lino_arguments::{LinoEnv, Parser, ValueEnum};
 use tokio::runtime::Builder;
 use yougile_to_gh::{
-    build_conversion_plan, execute_conversion_plan, fetch_task_tree, resolve_task_url,
-    ConversionMode, ConversionOptions, FetchOptions, GitHubClient, GitHubRepository,
-    ProjectTitleCache, Result, TaskUrlContext, YougileAuth, YougileClient, YougileTaskTree,
-    YougileToGhError,
+    build_conversion_plan, execute_conversion_plan, execute_issue_repair, fetch_task_tree,
+    plan_issue_repair, resolve_task_url, ConversionMode, ConversionOptions, FetchOptions,
+    GitHubClient, GitHubRepository, GitHubSink, ProjectTitleCache, RepairedIssue, Result,
+    TaskUrlContext, YougileAuth, YougileClient, YougileTaskTree, YougileToGhError,
 };
 
 /// Default `.lenv` file used to persist a resolved `YouGile` token.
@@ -61,6 +61,11 @@ struct Args {
 
     #[arg(long, env = "YOUGILE_TASK_ID")]
     task_id: Option<String>,
+
+    /// Number of an already imported issue whose body should be rebuilt with
+    /// today's rendering. Repeat to repair several; replaces `--task-id`.
+    #[arg(long, action = ArgAction::Append)]
+    repair_issue: Vec<u64>,
 
     #[arg(long)]
     task_json: Option<PathBuf>,
@@ -116,30 +121,101 @@ fn run() -> Result<()> {
     // its `env = ...` defaults, so a previously persisted token is reused.
     lino_arguments::init();
     let args = Args::parse();
-    let loaded = load_task_tree(&args)?;
+
+    if args.repair_issue.is_empty() {
+        run_conversion(&args)
+    } else {
+        run_repair(&args)
+    }
+}
+
+fn run_conversion(args: &Args) -> Result<()> {
+    let loaded = load_task_tree(args)?;
     let options = ConversionOptions {
         labels: args.label.clone(),
         assignees: args.assignee.clone(),
-        task_urls: collect_task_urls(&args, &loaded),
+        task_urls: collect_task_urls(args, &loaded),
     };
     let plan = build_conversion_plan(&loaded.tree, args.mode.into(), &options);
 
     if args.dry_run {
-        print_json(&plan)?;
-        return Ok(());
+        return print_json(&plan);
     }
 
+    let github = github_client(args)?;
+    let result = execute_conversion_plan(&plan, &github)?;
+    print_json(&result)
+}
+
+/// Rebuild the bodies of already imported issues with today's rendering.
+///
+/// Each issue names the `YouGile` task it came from, so the task is fetched
+/// again and the body re-rendered; `--dry-run` reports what would change without
+/// writing, which matters because a repair replaces the body as a whole.
+fn run_repair(args: &Args) -> Result<()> {
+    let github = github_client(args)?;
+    let (token, company_id) = resolve_yougile_token(args)?;
+    let yougile = YougileClient::new(&args.yougile_base_url, token)
+        .include_deleted(args.include_deleted)
+        .include_system_messages(args.include_system_messages);
+
+    let context = non_empty(args.yougile_company_id.as_deref())
+        .or_else(|| non_empty(company_id.as_deref()))
+        .and_then(|company_id| TaskUrlContext::new(&args.yougile_base_url, company_id));
+    let fetch_options = FetchOptions {
+        max_depth: args.max_depth,
+    };
+
+    let mut repairs = Vec::with_capacity(args.repair_issue.len());
+    let outcome = repair_each_issue(
+        args,
+        &github,
+        &yougile,
+        context.as_ref(),
+        fetch_options,
+        &mut repairs,
+    );
+
+    // Report before propagating: repairing several issues writes them one by one,
+    // so a failure midway still leaves earlier ones rewritten, and the caller
+    // needs to know which. Re-running is safe — a repaired body reports no change.
+    print_json(&repairs)?;
+    outcome
+}
+
+fn repair_each_issue(
+    args: &Args,
+    github: &GitHubClient,
+    yougile: &YougileClient,
+    context: Option<&TaskUrlContext>,
+    fetch_options: FetchOptions,
+    repairs: &mut Vec<RepairedIssue>,
+) -> Result<()> {
+    for issue_number in &args.repair_issue {
+        let issue = github.fetch_issue(*issue_number)?;
+        let repair = plan_issue_repair(yougile, &issue, fetch_options, context, &mut |error| {
+            eprintln!("warning: YouGile task link omits the project name: {error}");
+        })?;
+
+        if !args.dry_run {
+            execute_issue_repair(github, &repair)?;
+        }
+        repairs.push(repair);
+    }
+
+    Ok(())
+}
+
+fn github_client(args: &Args) -> Result<GitHubClient> {
     let token = resolve_github_token(args.github_token.as_deref())?;
     let repo = resolve_github_repo(args.github_repo.as_deref())?;
     let repository = GitHubRepository::parse(&repo)?;
-    let github = GitHubClient::with_http_client(
-        args.github_api_url,
+    Ok(GitHubClient::with_http_client(
+        args.github_api_url.clone(),
         token,
         repository,
         yougile_to_gh::http::UreqHttpClient::new(),
-    );
-    let result = execute_conversion_plan(&plan, &github)?;
-    print_json(&result)
+    ))
 }
 
 /// A task tree, plus what is needed to link its tasks back to `YouGile`.
