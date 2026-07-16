@@ -13,9 +13,32 @@ macro_rules! line {
     };
 }
 
+/// Renders the `YouGile` link that opens the task, followed by a blank line.
+///
+/// The link leads the body so the original task is one click away from the top
+/// of the issue.
+fn render_task_link(body: &mut String, task: &YougileTask, task_url: Option<&str>) {
+    let Some(url) = task_url.map(str::trim).filter(|url| !url.is_empty()) else {
+        return;
+    };
+
+    // The sticker names the task for a reader. Any caller may supply URLs, so a
+    // task without one still gets a label rather than a bare link.
+    let label = task
+        .id_task_project
+        .as_deref()
+        .map(str::trim)
+        .filter(|sticker| !sticker.is_empty())
+        .unwrap_or("Open task");
+
+    line!(body, "**YouGile:** [{label}]({url})");
+    line!(body);
+}
+
 #[must_use]
-pub fn render_single_issue_body(tree: &YougileTaskTree) -> String {
+pub fn render_single_issue_body(tree: &YougileTaskTree, task_url: Option<&str>) -> String {
     let mut body = String::new();
+    render_task_link(&mut body, &tree.task, task_url);
     line!(
         &mut body,
         "Converted from YouGile task `{}` with {} recursively collected task(s).",
@@ -28,8 +51,9 @@ pub fn render_single_issue_body(tree: &YougileTaskTree) -> String {
 }
 
 #[must_use]
-pub fn render_issue_tree_body(tree: &YougileTaskTree) -> String {
+pub fn render_issue_tree_body(tree: &YougileTaskTree, task_url: Option<&str>) -> String {
     let mut body = String::new();
+    render_task_link(&mut body, &tree.task, task_url);
     line!(&mut body, "Converted from YouGile task `{}`.", tree.task.id);
     line!(&mut body);
     render_task_details(&mut body, &tree.task, "Task", 2);

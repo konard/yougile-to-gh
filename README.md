@@ -45,7 +45,28 @@ to create the key). When your account belongs to a single company it is
 selected automatically; otherwise pass `--yougile-company-id`
 (or set `YOUGILE_COMPANY_ID`) with one of the listed company ids.
 
-The resolved token is saved to a `.lenv` file (`--lenv-path`, default `.lenv`)
+### Task links
+
+Each issue body starts with a link back to the YouGile task, so the original is
+one click away:
+
+```markdown
+**YouGile:** [ABC-42](https://ru.yougile.com/team/1a2b3c4d5e6f/Project-Name#ABC-42)
+```
+
+The link needs the company id, which is taken from `--yougile-company-id` /
+`YOUGILE_COMPANY_ID`, or from the company resolved while authenticating with a
+login and password — that one is saved to `.lenv`, so later runs keep their
+links. Links are skipped when the company is unknown, as for `--task-json` runs,
+which never reach the API.
+
+The readable segment is the project title, resolved through the task's column and
+board and reused across tasks sharing a column. A failed lookup warns on stderr
+and still emits the link without the title. Tasks without a project sticker get
+no link at all, since the `#ABC-42` fragment is what selects the task.
+
+The resolved token and its company id are saved to a `.lenv` file
+(`--lenv-path`, default `.lenv`)
 so later runs reuse it instead of re-authenticating. CLI options, environment
 variables, `.lenv`, and `.env` are loaded through the
 [`lino-arguments`](https://github.com/link-foundation/lino-arguments) library,
@@ -72,7 +93,7 @@ Useful options:
 - `--yougile-login <login>` / `--yougile-password <password>`: authenticate with credentials when no token is set.
 - `--yougile-company-id <id>`: selects the YouGile company when the account can access more than one.
 - `--lenv-path <path>`: path of the `.lenv` file used to persist a credential-resolved token (default `.lenv`).
-- `--no-save-token`: do not write a credential-resolved token to the `.lenv` file.
+- `--no-save-token`: do not write a credential-resolved token and company id to the `.lenv` file.
 - `--max-depth <n>`: limits recursive subtask traversal.
 - `--include-deleted`: includes deleted YouGile chat messages where the API returns them.
 - `--include-system-messages`: includes system chat messages.

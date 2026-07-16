@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,11 @@ pub struct ConversionOptions {
     pub labels: Vec<String>,
     #[serde(default)]
     pub assignees: Vec<String>,
+    /// `YouGile` task URLs by task id, rendered at the top of each issue body.
+    ///
+    /// Tasks missing from the map are rendered without a link.
+    #[serde(default)]
+    pub task_urls: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -120,7 +125,10 @@ fn single_issue_draft(tree: &YougileTaskTree, options: &ConversionOptions) -> Gi
         yougile_task_id: tree.task.id.clone(),
         parent_yougile_task_id: None,
         title: github_title(&tree.task),
-        body: render_single_issue_body(tree),
+        body: render_single_issue_body(
+            tree,
+            options.task_urls.get(&tree.task.id).map(String::as_str),
+        ),
         labels: options.labels.clone(),
         assignees: options.assignees.clone(),
         comments: Vec::new(),
@@ -142,7 +150,10 @@ fn collect_issue_tree_drafts(
         yougile_task_id: tree.task.id.clone(),
         parent_yougile_task_id: parent_yougile_task_id.map(str::to_owned),
         title: github_title(&tree.task),
-        body: render_issue_tree_body(tree),
+        body: render_issue_tree_body(
+            tree,
+            options.task_urls.get(&tree.task.id).map(String::as_str),
+        ),
         labels: options.labels.clone(),
         assignees: options.assignees.clone(),
         comments: tree

@@ -5,6 +5,7 @@ pub mod github;
 pub mod http;
 pub mod models;
 pub mod render;
+pub mod task_url;
 pub mod yougile;
 
 pub use auth::{ResolvedToken, YougileAuth, YougileCompany};
@@ -14,5 +15,8 @@ pub use converter::{
 };
 pub use error::{Result, YougileToGhError};
 pub use github::{GitHubClient, GitHubIssueDraft, GitHubRepository, GitHubSink};
-pub use models::{YougileChatMessage, YougileTask, YougileTaskTree};
+pub use models::{
+    YougileBoard, YougileChatMessage, YougileColumn, YougileProject, YougileTask, YougileTaskTree,
+};
+pub use task_url::{resolve_project_title, resolve_task_url, ProjectTitleCache, TaskUrlContext};
 pub use yougile::{fetch_task_tree, FetchOptions, YougileClient, YougileSource};

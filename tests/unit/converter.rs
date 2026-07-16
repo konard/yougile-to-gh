@@ -31,6 +31,7 @@ fn issue_tree_plan_links_child_drafts_to_parent_tasks() {
     let options = ConversionOptions {
         labels: vec!["migration".to_owned()],
         assignees: vec!["octocat".to_owned()],
+        ..ConversionOptions::default()
     };
     let plan = build_conversion_plan(&tree, ConversionMode::IssueTree, &options);
 
