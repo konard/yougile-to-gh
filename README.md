@@ -26,6 +26,24 @@ cargo run -- \
   --label imported-from-yougile
 ```
 
+### Repairing earlier imports
+
+Issues imported before a rendering change keep their old bodies. `--repair-issue`
+rebuilds one from its YouGile task, so it matches a fresh import:
+
+```bash
+cargo run -- --repair-issue 340 --github-repo owner/repo --dry-run
+```
+
+The task id is read back from the issue's own `Converted from YouGile task` line,
+so no task id is passed. Repeat `--repair-issue` to repair several. The body is
+re-rendered in the mode it was imported with, whatever `--mode` says, so a
+`single-issue` body keeps the whole tree it holds.
+
+A repair replaces the **whole** body, so run `--dry-run` first — it prints each
+rebuilt body and a `changed` flag without writing. Bodies already up to date are
+left untouched, as are titles, labels and assignees.
+
 ### YouGile authentication
 
 A token may be supplied directly through `--yougile-token` / `YOUGILE_TOKEN`.
@@ -94,6 +112,7 @@ Useful options:
 - `--yougile-company-id <id>`: selects the YouGile company when the account can access more than one.
 - `--lenv-path <path>`: path of the `.lenv` file used to persist a credential-resolved token (default `.lenv`).
 - `--no-save-token`: do not write a credential-resolved token and company id to the `.lenv` file.
+- `--repair-issue <number>`: rebuilds an already imported issue's body from its YouGile task; repeatable, and used instead of `--task-id`.
 - `--max-depth <n>`: limits recursive subtask traversal.
 - `--include-deleted`: includes deleted YouGile chat messages where the API returns them.
 - `--include-system-messages`: includes system chat messages.

@@ -3,7 +3,7 @@ use serde_json::json;
 
 use crate::error::{Result, YougileToGhError};
 use crate::http::{HttpClient, HttpRequest, UreqHttpClient};
-use crate::models::{CreatedGitHubComment, CreatedGitHubIssue};
+use crate::models::{CreatedGitHubComment, CreatedGitHubIssue, GitHubIssue};
 
 const DEFAULT_GITHUB_API_URL: &str = "https://api.github.com";
 const DEFAULT_GITHUB_API_VERSION: &str = "2026-03-10";
@@ -28,6 +28,10 @@ pub trait GitHubSink {
     fn create_issue_comment(&self, issue_number: u64, body: &str) -> Result<CreatedGitHubComment>;
 
     fn add_sub_issue(&self, parent_issue_number: u64, sub_issue_id: u64) -> Result<()>;
+
+    fn fetch_issue(&self, issue_number: u64) -> Result<GitHubIssue>;
+
+    fn update_issue_body(&self, issue_number: u64, body: &str) -> Result<()>;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -134,6 +138,20 @@ impl<C: HttpClient> GitHubSink for GitHubClient<C> {
             json!({ "sub_issue_id": sub_issue_id }),
         );
         let _response: serde_json::Value = self.send_json(request, "GitHub add sub-issue")?;
+        Ok(())
+    }
+
+    fn fetch_issue(&self, issue_number: u64) -> Result<GitHubIssue> {
+        let request = HttpRequest::get(self.repo_url(&format!("issues/{issue_number}")));
+        self.send_json(request, "GitHub fetch issue")
+    }
+
+    fn update_issue_body(&self, issue_number: u64, body: &str) -> Result<()> {
+        let request = HttpRequest::patch(
+            self.repo_url(&format!("issues/{issue_number}")),
+            json!({ "body": body }),
+        );
+        let _response: serde_json::Value = self.send_json(request, "GitHub update issue")?;
         Ok(())
     }
 }
