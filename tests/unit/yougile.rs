@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use serde_json::json;
-use yougile_to_gh::models::{YougileChatMessage, YougileTask};
+use yougile_to_gh::models::{
+    YougileBoard, YougileChatMessage, YougileColumn, YougileProject, YougileTask,
+};
 use yougile_to_gh::yougile::{fetch_task_tree, FetchOptions, YougileSource};
 use yougile_to_gh::{Result, YougileToGhError};
 
@@ -81,6 +83,18 @@ impl YougileSource for FakeYougile {
             "reactions": {}
         }))
         .unwrap()])
+    }
+
+    fn get_column(&self, _column_id: &str) -> Result<YougileColumn> {
+        Err(YougileToGhError::MissingValue("fake column"))
+    }
+
+    fn get_board(&self, _board_id: &str) -> Result<YougileBoard> {
+        Err(YougileToGhError::MissingValue("fake board"))
+    }
+
+    fn get_project(&self, _project_id: &str) -> Result<YougileProject> {
+        Err(YougileToGhError::MissingValue("fake project"))
     }
 }
 

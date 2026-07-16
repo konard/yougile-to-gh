@@ -31,7 +31,7 @@ fn main() {
         ConversionMode::IssueTree,
         &ConversionOptions {
             labels: vec!["yougile".to_owned()],
-            assignees: Vec::new(),
+            ..ConversionOptions::default()
         },
     );
 

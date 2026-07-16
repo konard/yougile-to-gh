@@ -81,7 +81,7 @@ pub fn sample_tree() -> YougileTaskTree {
 
 #[test]
 fn single_issue_body_contains_recursive_task_data() {
-    let body = render_single_issue_body(&sample_tree());
+    let body = render_single_issue_body(&sample_tree(), None);
 
     assert!(body.contains("Root description"));
     assert!(body.contains("Child description"));
@@ -93,11 +93,40 @@ fn single_issue_body_contains_recursive_task_data() {
 
 #[test]
 fn issue_tree_body_mentions_sub_issue_strategy() {
-    let body = render_issue_tree_body(&sample_tree());
+    let body = render_issue_tree_body(&sample_tree(), None);
 
     assert!(body.contains("Child tasks are created as GitHub issues"));
     assert!(body.contains("- [x] Child task (`child`)"));
     assert!(body.contains("  - [ ] Grandchild task (`grandchild`)"));
+}
+
+#[test]
+fn issue_body_leads_with_the_yougile_link_labelled_by_sticker() {
+    let mut tree = sample_tree();
+    tree.task.id_task_project = Some("ABC-42".to_owned());
+    let url = "https://ru.yougile.com/team/1a2b3c4d5e6f/Service#ABC-42";
+
+    let body = render_issue_tree_body(&tree, Some(url));
+
+    assert!(body.starts_with(&format!("**YouGile:** [ABC-42]({url})")));
+}
+
+#[test]
+fn issue_body_without_a_link_starts_with_the_conversion_note() {
+    let body = render_issue_tree_body(&sample_tree(), None);
+
+    assert!(body.starts_with("Converted from YouGile task"));
+    assert!(!body.contains("**YouGile:**"));
+}
+
+#[test]
+fn issue_body_link_falls_back_to_a_generic_label_without_a_sticker() {
+    let tree = sample_tree();
+    let url = "https://ru.yougile.com/team/1a2b3c4d5e6f#ABC-42";
+
+    let body = render_single_issue_body(&tree, Some(url));
+
+    assert!(body.starts_with(&format!("**YouGile:** [Open task]({url})")));
 }
 
 #[test]

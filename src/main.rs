@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,9 +9,10 @@ use command_stream::{CommandResult, RunOptions, StdinOption};
 use lino_arguments::{LinoEnv, Parser, ValueEnum};
 use tokio::runtime::Builder;
 use yougile_to_gh::{
-    build_conversion_plan, execute_conversion_plan, fetch_task_tree, ConversionMode,
-    ConversionOptions, FetchOptions, GitHubClient, GitHubRepository, Result, YougileAuth,
-    YougileClient, YougileTaskTree, YougileToGhError,
+    build_conversion_plan, execute_conversion_plan, fetch_task_tree, resolve_task_url,
+    ConversionMode, ConversionOptions, FetchOptions, GitHubClient, GitHubRepository,
+    ProjectTitleCache, Result, TaskUrlContext, YougileAuth, YougileClient, YougileTaskTree,
+    YougileToGhError,
 };
 
 /// Default `.lenv` file used to persist a resolved `YouGile` token.
@@ -114,12 +116,13 @@ fn run() -> Result<()> {
     // its `env = ...` defaults, so a previously persisted token is reused.
     lino_arguments::init();
     let args = Args::parse();
-    let tree = load_task_tree(&args)?;
+    let loaded = load_task_tree(&args)?;
     let options = ConversionOptions {
-        labels: args.label,
-        assignees: args.assignee,
+        labels: args.label.clone(),
+        assignees: args.assignee.clone(),
+        task_urls: collect_task_urls(&args, &loaded),
     };
-    let plan = build_conversion_plan(&tree, args.mode.into(), &options);
+    let plan = build_conversion_plan(&loaded.tree, args.mode.into(), &options);
 
     if args.dry_run {
         print_json(&plan)?;
@@ -139,38 +142,119 @@ fn run() -> Result<()> {
     print_json(&result)
 }
 
-fn load_task_tree(args: &Args) -> Result<YougileTaskTree> {
+/// A task tree, plus what is needed to link its tasks back to `YouGile`.
+///
+/// The client and company id are absent for a `--task-json` run, which never
+/// reaches the API and therefore renders no links.
+struct LoadedTaskTree {
+    tree: YougileTaskTree,
+    client: Option<YougileClient>,
+    company_id: Option<String>,
+}
+
+fn load_task_tree(args: &Args) -> Result<LoadedTaskTree> {
     if let Some(path) = &args.task_json {
         let content = fs::read_to_string(path)
             .map_err(|source| YougileToGhError::io(path.display().to_string(), source))?;
-        return serde_json::from_str(&content)
-            .map_err(|source| YougileToGhError::json(path.display().to_string(), source));
+        let tree = serde_json::from_str(&content)
+            .map_err(|source| YougileToGhError::json(path.display().to_string(), source))?;
+        return Ok(LoadedTaskTree {
+            tree,
+            client: None,
+            company_id: None,
+        });
     }
 
     let task_id = required(args.task_id.as_deref(), "YOUGILE_TASK_ID or --task-id")?;
-    let token = resolve_yougile_token(args)?;
+    let (token, company_id) = resolve_yougile_token(args)?;
     let client = YougileClient::new(&args.yougile_base_url, token)
         .include_deleted(args.include_deleted)
         .include_system_messages(args.include_system_messages);
 
-    fetch_task_tree(
+    let tree = fetch_task_tree(
         &client,
         task_id,
         FetchOptions {
             max_depth: args.max_depth,
         },
-    )
+    )?;
+    Ok(LoadedTaskTree {
+        tree,
+        client: Some(client),
+        company_id,
+    })
 }
 
-/// Resolve a usable `YouGile` API token.
+/// Build the `YouGile` link for every task in the tree, keyed by task id.
+///
+/// Links need the company id, so they are skipped when it is unknown — a link
+/// is a convenience, and lacking one must not fail the conversion.
+fn collect_task_urls(args: &Args, loaded: &LoadedTaskTree) -> BTreeMap<String, String> {
+    let mut urls = BTreeMap::new();
+    let Some(client) = loaded.client.as_ref() else {
+        return urls;
+    };
+    let Some(company_id) = non_empty(args.yougile_company_id.as_deref())
+        .or_else(|| non_empty(loaded.company_id.as_deref()))
+    else {
+        return urls;
+    };
+    let Some(context) = TaskUrlContext::new(&args.yougile_base_url, company_id) else {
+        return urls;
+    };
+
+    let mut cache = ProjectTitleCache::new();
+    // Warn once: the same unreachable API would repeat this for every task.
+    let mut warned = false;
+    let mut warn = |error: &YougileToGhError| {
+        if !warned {
+            warned = true;
+            eprintln!("warning: YouGile task links omit the project name: {error}");
+        }
+    };
+
+    collect_task_urls_recursive(
+        client,
+        &loaded.tree,
+        &context,
+        &mut cache,
+        &mut warn,
+        &mut urls,
+    );
+    urls
+}
+
+fn collect_task_urls_recursive(
+    client: &YougileClient,
+    tree: &YougileTaskTree,
+    context: &TaskUrlContext,
+    cache: &mut ProjectTitleCache,
+    on_title_error: &mut impl FnMut(&YougileToGhError),
+    urls: &mut BTreeMap<String, String>,
+) {
+    if let Some(url) = resolve_task_url(client, &tree.task, context, cache, on_title_error) {
+        urls.insert(tree.task.id.clone(), url);
+    }
+
+    for subtask in &tree.subtasks {
+        collect_task_urls_recursive(client, subtask, context, cache, on_title_error, urls);
+    }
+}
+
+/// Resolve a usable `YouGile` API token, and the company it belongs to.
 ///
 /// A token supplied directly (via `--yougile-token` / `YOUGILE_TOKEN`, which
-/// also covers values loaded from `.lenv`) wins. Otherwise, when a login and
-/// password are available, the token is created through the `YouGile`
-/// authentication API and persisted to the `.lenv` file for reuse.
-fn resolve_yougile_token(args: &Args) -> Result<String> {
+/// also covers values loaded from `.lenv`) wins; its company is only known if
+/// it was configured alongside. Otherwise, when a login and password are
+/// available, the token is created through the `YouGile` authentication API and
+/// persisted to the `.lenv` file for reuse, together with the company it
+/// resolved to, which task URLs are built from.
+fn resolve_yougile_token(args: &Args) -> Result<(String, Option<String>)> {
     if let Some(token) = non_empty(args.yougile_token.as_deref()) {
-        return Ok(token.to_owned());
+        return Ok((
+            token.to_owned(),
+            non_empty(args.yougile_company_id.as_deref()).map(str::to_owned),
+        ));
     }
 
     let login = required(
@@ -190,15 +274,15 @@ fn resolve_yougile_token(args: &Args) -> Result<String> {
     )?;
 
     if !args.no_save_token {
-        save_token_to_lenv(&args.lenv_path, &resolved.token)?;
+        save_credentials_to_lenv(&args.lenv_path, &resolved.token, &resolved.company_id)?;
     }
 
-    Ok(resolved.token)
+    Ok((resolved.token, Some(resolved.company_id)))
 }
 
-/// Persist the resolved `YouGile` token to the `.lenv` file, preserving any
-/// existing entries.
-fn save_token_to_lenv(path: &Path, token: &str) -> Result<()> {
+/// Persist the resolved `YouGile` token and company to the `.lenv` file,
+/// preserving any existing entries.
+fn save_credentials_to_lenv(path: &Path, token: &str, company_id: &str) -> Result<()> {
     let path_display = path.display().to_string();
     let path_str = path
         .to_str()
@@ -208,6 +292,7 @@ fn save_token_to_lenv(path: &Path, token: &str) -> Result<()> {
     lenv.read()
         .map_err(|source| YougileToGhError::io(path_display.clone(), source))?;
     lenv.set("YOUGILE_TOKEN", token);
+    lenv.set("YOUGILE_COMPANY_ID", company_id);
     lenv.write()
         .map_err(|source| YougileToGhError::io(path_display, source))?;
     Ok(())

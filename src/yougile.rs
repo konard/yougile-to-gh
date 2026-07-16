@@ -4,7 +4,10 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{Result, YougileToGhError};
 use crate::http::{HttpClient, HttpRequest, UreqHttpClient};
-use crate::models::{YougileChatMessage, YougilePage, YougileTask, YougileTaskTree};
+use crate::models::{
+    YougileBoard, YougileChatMessage, YougileColumn, YougilePage, YougileProject, YougileTask,
+    YougileTaskTree,
+};
 
 const DEFAULT_PAGE_LIMIT: u64 = 1000;
 
@@ -12,6 +15,12 @@ pub trait YougileSource {
     fn get_task(&self, task_id: &str) -> Result<YougileTask>;
 
     fn list_task_messages(&self, task_id: &str) -> Result<Vec<YougileChatMessage>>;
+
+    fn get_column(&self, column_id: &str) -> Result<YougileColumn>;
+
+    fn get_board(&self, board_id: &str) -> Result<YougileBoard>;
+
+    fn get_project(&self, project_id: &str) -> Result<YougileProject>;
 }
 
 #[derive(Clone, Debug)]
@@ -95,6 +104,18 @@ impl<C: HttpClient> YougileSource for YougileClient<C> {
 
         messages.sort_by_key(|message| message.id);
         Ok(messages)
+    }
+
+    fn get_column(&self, column_id: &str) -> Result<YougileColumn> {
+        self.get_json(&format!("{}/columns/{column_id}", self.api_base_url))
+    }
+
+    fn get_board(&self, board_id: &str) -> Result<YougileBoard> {
+        self.get_json(&format!("{}/boards/{board_id}", self.api_base_url))
+    }
+
+    fn get_project(&self, project_id: &str) -> Result<YougileProject> {
+        self.get_json(&format!("{}/projects/{project_id}", self.api_base_url))
     }
 }
 
